@@ -81,6 +81,10 @@ const createAutomationSchema = z
 
 const updateAutomationSchema = z.object({
   name: z.string().min(1).max(100).optional(),
+  // The builder sends the account on every save. It used to be missing here, so
+  // zod stripped it and moving a campaign to another account silently kept the
+  // old one, while the new account's post was saved against it.
+  instagramAccountId: z.string().min(1).optional(),
   goal: z.string().min(1).max(120).optional().nullable(),
   postId: z.string().min(1).optional().nullable(),
   postUrl: z.string().url().optional().nullable(),
@@ -499,6 +503,23 @@ export async function PATCH(request: NextRequest) {
     secondaryButtonLabel,
     ...automationData
   } = parsed.data;
+
+  // Moving to another account: it has to be one of this workspace's accounts.
+  if (
+    automationData.instagramAccountId &&
+    automationData.instagramAccountId !== existing.instagramAccountId
+  ) {
+    const account = await prisma.instagramAccount.findFirst({
+      where: { id: automationData.instagramAccountId, workspaceId },
+      select: { id: true },
+    });
+    if (!account) {
+      return NextResponse.json(
+        { success: false, error: "Instagram account not found" },
+        { status: 400 }
+      );
+    }
+  }
 
   // Keep dependent fields consistent: any-word clears keywords; a disabled
   // opening DM clears its message and button.
