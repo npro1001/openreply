@@ -3,6 +3,7 @@ import {
   createOAuthState,
   decryptToken,
   encryptToken,
+  getAuthorizationUrl,
   verifyOAuthState,
 } from "../lib/meta/oauth";
 
@@ -29,5 +30,13 @@ describe("OAuth state and token encryption", () => {
   it("rejects tampered OAuth state", () => {
     const state = createOAuthState("workspace_123");
     expect(verifyOAuthState(`${state}tampered`)).toBeNull();
+  });
+});
+
+describe("Instagram authorization URL", () => {
+  it("forces the login screen so a second account can be connected", () => {
+    vi.stubEnv("INSTAGRAM_APP_ID", "123");
+    const url = new URL(getAuthorizationUrl("https://example.com/api/instagram/callback", "state"));
+    expect(url.searchParams.get("force_reauth")).toBe("true");
   });
 });

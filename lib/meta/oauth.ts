@@ -77,6 +77,10 @@ export function getAuthorizationUrl(redirectUri: string, state: string): string 
       "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_manage_insights",
     response_type: "code",
     state,
+    // Always show Instagram's login screen. Without it, Instagram silently reuses
+    // whichever account the browser is already signed in to, so "Connect another
+    // account" just reconnects the first one.
+    force_reauth: "true",
   });
 
   return `${INSTAGRAM_OAUTH_URL}?${params.toString()}`;
