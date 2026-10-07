@@ -30,6 +30,7 @@ import { getDMQueue } from "@/lib/queue/client";
 import {
   getRecentMediaComments,
   getUserMedia,
+  describeMetaError,
   MetaApiError,
   type InstagramComment,
 } from "@/lib/meta/client";
@@ -55,7 +56,7 @@ interface SweepStat {
 }
 
 function errMessage(error: unknown): string {
-  if (error instanceof MetaApiError) return `Meta ${error.code}: ${error.message}`;
+  if (error instanceof MetaApiError) return describeMetaError(error);
   if (error instanceof Error) return error.message;
   return "Unknown error";
 }

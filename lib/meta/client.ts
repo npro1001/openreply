@@ -8,37 +8,84 @@ function facebookGraphBase() {
   return `https://graph.facebook.com/${getMetaGraphApiVersion()}`;
 }
 
+/** The parts of a Graph API error that explain it beyond the headline message. */
+export interface MetaErrorDetails {
+  type?: string;
+  /** Meta's own short explanation, when it gives one (`error_user_title`). */
+  userTitle?: string;
+  /** Meta's own longer explanation, when it gives one (`error_user_msg`). */
+  userMessage?: string;
+}
+
 export class MetaApiError extends Error {
   constructor(
     public code: number,
     public subcode: number | undefined,
     public fbTraceId: string | undefined,
-    message: string
+    message: string,
+    public details: MetaErrorDetails = {}
   ) {
     super(message);
     this.name = "MetaApiError";
   }
 }
 
+// The subclasses group codes by how the worker should react. They keep the code
+// and subcode Meta actually returned: the subcode is what tells apart failures
+// that share a code and a vague message (code 100 covers a closed thread, a
+// recipient who can't be messaged and a bad request alike).
 export class TokenExpiredError extends MetaApiError {
-  constructor(message: string, fbTraceId?: string) {
-    super(190, undefined, fbTraceId, message);
+  constructor(
+    message: string,
+    fbTraceId?: string,
+    subcode?: number,
+    details?: MetaErrorDetails
+  ) {
+    super(190, subcode, fbTraceId, message, details);
     this.name = "TokenExpiredError";
   }
 }
 
 export class RateLimitError extends MetaApiError {
-  constructor(message: string, fbTraceId?: string) {
-    super(368, undefined, fbTraceId, message);
+  constructor(
+    message: string,
+    fbTraceId?: string,
+    code = 368,
+    subcode?: number,
+    details?: MetaErrorDetails
+  ) {
+    super(code, subcode, fbTraceId, message, details);
     this.name = "RateLimitError";
   }
 }
 
 export class PermissionError extends MetaApiError {
-  constructor(message: string, fbTraceId?: string) {
-    super(100, undefined, fbTraceId, message);
+  constructor(
+    message: string,
+    fbTraceId?: string,
+    code = 100,
+    subcode?: number,
+    details?: MetaErrorDetails
+  ) {
+    super(code, subcode, fbTraceId, message, details);
     this.name = "PermissionError";
   }
+}
+
+/**
+ * One line with everything Meta said about a failure, for DM logs and alerts:
+ * code, subcode, Meta's own explanation and the trace ID Meta support asks for.
+ */
+export function describeMetaError(error: MetaApiError): string {
+  const code = error.subcode ? `${error.code}/${error.subcode}` : `${error.code}`;
+  const explanation = [error.details.userTitle, error.details.userMessage]
+    .filter(Boolean)
+    .join(": ");
+  return [
+    `Meta API Error ${code}: ${error.message}`,
+    explanation ? ` (${explanation})` : "",
+    error.fbTraceId ? ` [trace ${error.fbTraceId}]` : "",
+  ].join("");
 }
 
 interface GraphApiError {
@@ -47,6 +94,8 @@ interface GraphApiError {
     type: string;
     code: number;
     error_subcode?: number;
+    error_user_title?: string;
+    error_user_msg?: string;
     fbtrace_id?: string;
   };
 }
@@ -117,20 +166,25 @@ async function handleResponse<T>(response: Response): Promise<T> {
     const subcode = err?.error_subcode;
     const traceId = err?.fbtrace_id;
     const message = err?.message ?? "Unknown Meta API error";
+    const details: MetaErrorDetails = {
+      type: err?.type,
+      userTitle: err?.error_user_title,
+      userMessage: err?.error_user_msg,
+    };
 
     switch (code) {
       case 190:
-        throw new TokenExpiredError(message, traceId);
+        throw new TokenExpiredError(message, traceId, subcode, details);
       case 368:
       case 4:
       case 17:
-        throw new RateLimitError(message, traceId);
+        throw new RateLimitError(message, traceId, code, subcode, details);
       case 10:
       case 100:
       case 200:
-        throw new PermissionError(message, traceId);
+        throw new PermissionError(message, traceId, code, subcode, details);
       default:
-        throw new MetaApiError(code, subcode, traceId, message);
+        throw new MetaApiError(code, subcode, traceId, message, details);
     }
   }
 

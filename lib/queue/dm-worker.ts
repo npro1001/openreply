@@ -13,6 +13,7 @@ import { prisma } from "@/lib/db/client";
 import {
   MetaApiError,
   RateLimitError,
+  describeMetaError,
   TokenExpiredError,
   getUserFollowStatus,
   sendCommentReply,
@@ -41,7 +42,7 @@ const BACKOFF_DELAYS = [5 * 60 * 1000, 15 * 60 * 1000, 45 * 60 * 1000];
 
 function formatError(error: unknown): string {
   if (error instanceof MetaApiError) {
-    return `Meta API Error ${error.code}: ${error.message}`;
+    return describeMetaError(error);
   }
   if (error instanceof Error) {
     return error.message;
@@ -928,12 +929,22 @@ async function recordWorkerFailure(
         workspaceId: account?.workspaceId ?? null,
         source: "WORKER",
         level: "ERROR",
-        message: `DM worker job ${job?.id ?? "unknown"} failed: ${error.message}`,
+        message: `DM worker job ${job?.id ?? "unknown"} failed: ${formatError(error)}`,
         payload: {
           jobId: job?.id ?? null,
           attemptsMade: job?.attemptsMade ?? null,
           instagramAccountId: instagramAccountId ?? null,
           commentId,
+          ...(error instanceof MetaApiError
+            ? {
+                metaCode: error.code,
+                metaSubcode: error.subcode ?? null,
+                metaType: error.details.type ?? null,
+                metaUserTitle: error.details.userTitle ?? null,
+                metaUserMessage: error.details.userMessage ?? null,
+                fbTraceId: error.fbTraceId ?? null,
+              }
+            : {}),
         },
       },
     });
@@ -974,7 +985,7 @@ export function createDMWorker(): Worker<DmQueueJob> {
   worker.on("failed", (job, err) => {
     console.error(
       `[DM Worker] Job ${job?.id} failed (attempt ${job?.attemptsMade}):`,
-      err.message
+      formatError(err)
     );
     void recordWorkerFailure(job, err);
   });
